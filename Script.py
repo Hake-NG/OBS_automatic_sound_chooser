@@ -46,10 +46,8 @@ OBS_PASSWORD = "your_password" # Впиши свой пароль от WebSocket
 
 # Используем быструю и легкую модель
 model = genai.GenerativeModel('gemini-1.5-flash')
-
 # Словарь для хранения уже известных ИИ процессов (Кэш)
 ai_cache = {ai_cache.json} 
-
 # Получаем список доступных категорий из нашего конфига (Games, Media, Browser, Discord)
 AVAILABLE_CATEGORIES = list(TRACK_CONFIG.keys())
 
@@ -57,22 +55,34 @@ AVAILABLE_CATEGORIES = list(TRACK_CONFIG.keys())
 # 2. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # ==========================================
 
+def load_cache():
+    if os.path.exists(CACHE_FILE):
+        try:
+            with open(CACHE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+def save_cache(cache_data):
+    try:
+        with open(CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(cache_data, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        print(f"Ошибка сохранения кэша: {e}")
+
+# Инициализируем кэш из файла при старте
+ai_cache = load_cache()
+
 def get_window_title_by_pid(pid):
-    """Находит заголовок видимого окна по ID процесса (PID)."""
     hwnds = []
     def callback(hwnd, hwnds):
         if win32gui.IsWindowVisible(hwnd) and win32gui.IsWindowEnabled(hwnd):
             _, found_pid = win32process.GetWindowThreadProcessId(hwnd)
-            if found_pid == pid:
-                hwnds.append(hwnd)
+            if found_pid == pid: hwnds.append(hwnd)
         return True
-    
     win32gui.EnumWindows(callback, hwnds)
-    
-    if hwnds:
-        # Возвращаем заголовок первого найденного окна
-        return win32gui.GetWindowText(hwnds[0])
-    return ""
+    return win32gui.GetWindowText(hwnds[0]) if hwnds else ""
 
 # ==========================================
 # Определение с помощью ИИ
@@ -112,11 +122,13 @@ def categorize_process(exe_name):
         # Проверяем, вернул ли ИИ валидную категорию
         if ai_answer in AVAILABLE_CATEGORIES:
             print(f"[AI] Процесс {exe_name} классифицирован как {ai_answer}")
-            ai_cache[exe_name_lower] = ai_answer # Сохраняем в кэш
+            ai_cache[exe_name_lower] = ai_answer
+            save_cache(ai_cache)  # ЗАПИСЬ В JSON
             return ai_answer
         else:
             print(f"[AI] Процесс {exe_name} проигнорирован (Ответ ИИ: {ai_answer})")
             ai_cache[exe_name_lower] = None
+            save_cache(ai_cache)
             return None
             
     except Exception as e:
