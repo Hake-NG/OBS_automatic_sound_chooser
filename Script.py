@@ -48,7 +48,7 @@ OBS_PASSWORD = "your_password" # Впиши свой пароль от WebSocket
 model = genai.GenerativeModel('gemini-1.5-flash')
 
 # Словарь для хранения уже известных ИИ процессов (Кэш)
-ai_cache = {} 
+ai_cache = {ai_cache.json} 
 
 # Получаем список доступных категорий из нашего конфига (Games, Media, Browser, Discord)
 AVAILABLE_CATEGORIES = list(TRACK_CONFIG.keys())
