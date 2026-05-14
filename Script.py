@@ -4,6 +4,10 @@ import win32gui
 import win32process
 from pycaw.pycaw import AudioUtilities
 import obsws_python as obs
+import google.generativeai as genai
+
+
+
 
 # ==========================================
 # 1. КОНФИГУРАЦИЯ ДОРОЖЕК
@@ -31,10 +35,23 @@ TRACK_CONFIG = {
     }
 }
 
+
+# Вставь сюда свой API ключ
+genai.configure(api_key="ТВОЙ_API_КЛЮЧ") 
+
 # Настройки подключения к OBS
 OBS_HOST = "localhost"
 OBS_PORT = 4455
 OBS_PASSWORD = "your_password" # Впиши свой пароль от WebSocket
+
+# Используем быструю и легкую модель
+model = genai.GenerativeModel('gemini-1.5-flash')
+
+# Словарь для хранения уже известных ИИ процессов (Кэш)
+ai_cache = {} 
+
+# Получаем список доступных категорий из нашего конфига (Games, Media, Browser, Discord)
+AVAILABLE_CATEGORIES = list(TRACK_CONFIG.keys())
 
 # ==========================================
 # 2. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
@@ -57,25 +74,54 @@ def get_window_title_by_pid(pid):
         return win32gui.GetWindowText(hwnds[0])
     return ""
 
+# ==========================================
+# Определение с помощью ИИ
+# ==========================================
+
 def categorize_process(exe_name):
     """
-    Определяет, к какой категории относится процесс.
-    Именно ЗДЕСЬ в будущем можно подключить ИИ!
-    Если .exe нет в наших списках, ИИ может проанализировать имя и вернуть категорию.
+    Определяет категорию: сначала по жесткому списку, затем через ИИ.
     """
     exe_name_lower = exe_name.lower()
     
-    # 1. Сначала ищем по нашим жестким спискам
+    # 1. Быстрая проверка: есть ли процесс в наших ручных списках?
     for category, data in TRACK_CONFIG.items():
-        if exe_name_lower in data["processes"]:
+        if exe_name_lower in [proc.lower() for proc in data["processes"]]:
             return category
             
-    # 2. МЕСТО ДЛЯ ИИ: 
-    # Если процесс не найден (например, новая игра "unknown_game.exe"),
-    # тут можно сделать запрос к локальной нейросети, которая вернет "Games".
+    # 2. Быстрая проверка: спрашивали ли мы ИИ об этом процессе ранее?
+    if exe_name_lower in ai_cache:
+        return ai_cache[exe_name_lower]
+        
+    # 3. Если процесс неизвестен — ЗАПРАШИВАЕМ ИИ
+    print(f"[AI] Обнаружен неизвестный процесс: {exe_name}. Анализирую...")
     
-    # Пока возвращаем None, если процесс нам неизвестен
-    return None
+    prompt = f"""
+    Ты - классификатор процессов Windows.
+    У меня есть список категорий: {AVAILABLE_CATEGORIES}.
+    К какой из этих категорий вероятнее всего относится исполняемый файл "{exe_name}"?
+    Если это системный процесс (например, svchost.exe, explorer.exe) или ты не знаешь, ответь "None".
+    Твой ответ должен содержать ТОЛЬКО одно слово - название категории или "None".
+    """
+    
+    try:
+        # Отправляем запрос к ИИ
+        response = model.generate_content(prompt)
+        ai_answer = response.text.strip()
+        
+        # Проверяем, вернул ли ИИ валидную категорию
+        if ai_answer in AVAILABLE_CATEGORIES:
+            print(f"[AI] Процесс {exe_name} классифицирован как {ai_answer}")
+            ai_cache[exe_name_lower] = ai_answer # Сохраняем в кэш
+            return ai_answer
+        else:
+            print(f"[AI] Процесс {exe_name} проигнорирован (Ответ ИИ: {ai_answer})")
+            ai_cache[exe_name_lower] = None
+            return None
+            
+    except Exception as e:
+        print(f"[AI ОШИБКА] Не удалось связаться с API: {e}")
+        return None
 
 # ==========================================
 # 3. ОСНОВНАЯ ЛОГИКА
